@@ -63,6 +63,8 @@ type Config struct {
 	DisableTLS bool
 	// Number of connection attempts to the collector after which we give up retrying
 	MaxGRPCRetries uint32
+	// The mode to use for the build ID, either "linker" or "hash".
+	OTLPBuildIDMode string
 
 	Times Times
 }

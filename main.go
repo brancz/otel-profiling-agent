@@ -305,6 +305,7 @@ func mainWithExitCode() exitCode {
 		DisableTLS:              argDisableTLS,
 		MaxGRPCRetries:          5,
 		Times:                   times,
+		OTLPBuildIDMode:         argBuildIDMode,
 	})
 	if err != nil {
 		msg := fmt.Sprintf("Failed to start reporting: %v", err)

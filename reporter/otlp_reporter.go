@@ -101,6 +101,9 @@ type OTLPReporter struct {
 
 	// frames maps frame information to its source location.
 	frames *lru.SyncedLRU[libpf.FileID, map[libpf.AddressOrLineno]sourceInfo]
+
+	// otlpBuildIDMode is the mode to use for the build ID (either "linker" or "hash").
+	otlpBuildIDMode string
 }
 
 // hashString is a helper function for LRUs that use string as a key.
@@ -300,6 +303,7 @@ func StartOTLP(mainCtx context.Context, c *Config) (Reporter, error) {
 		executables:     executables,
 		frames:          frames,
 		hostmetadata:    hostmetadata,
+		otlpBuildIDMode: c.OTLPBuildIDMode,
 	}
 
 	// Create a child context for reporting features
@@ -546,15 +550,27 @@ func (r *OTLPReporter) getProfile() (profile *pprofextended.Profile, startTS uin
 						fileName = execInfo.fileName
 					}
 
+					var (
+						buildID     = "UNKNOWN"
+						buildIDKind pprofextended.BuildIdKind
+					)
+					if r.otlpBuildIDMode == "linker" {
+						buildID = execInfo.buildID
+						buildIDKind = *pprofextended.BuildIdKind_BUILD_ID_LINKER.Enum()
+					}
+					if r.otlpBuildIDMode == "hash" {
+						buildID = trace.files[i].StringNoQuotes()
+						buildIDKind = *pprofextended.BuildIdKind_BUILD_ID_BINARY_HASH.Enum()
+					}
+
 					profile.Mapping = append(profile.Mapping, &pprofextended.Mapping{
 						// Id - Optional element we do not use.
 						// MemoryStart - Optional element we do not use.
 						// MemoryLImit - Optional element we do not use.
-						FileOffset: uint64(trace.linenos[i]),
-						Filename:   int64(getStringMapIndex(stringMap, fileName)),
-						BuildId: int64(getStringMapIndex(stringMap,
-							trace.files[i].StringNoQuotes())),
-						BuildIdKind: *pprofextended.BuildIdKind_BUILD_ID_BINARY_HASH.Enum(),
+						FileOffset:  uint64(trace.linenos[i]),
+						Filename:    int64(getStringMapIndex(stringMap, fileName)),
+						BuildId:     int64(getStringMapIndex(stringMap, buildID)),
+						BuildIdKind: buildIDKind,
 						// Attributes - Optional element we do not use.
 						// HasFunctions - Optional element we do not use.
 						// HasFilenames - Optional element we do not use.

@@ -359,6 +359,19 @@ func getBuildIDFromNotes(notes []byte) (string, error) {
 	return buildID, nil
 }
 
+// getBuildIDFromGoNotes returns the Build ID the Go compiler adds to the
+// .note.go.buildid section.
+func getBuildIDFromGoNotes(notes []byte) (string, error) {
+	buildID, found, err := getGoNoteString(notes)
+	if err != nil {
+		return "", fmt.Errorf("could not determine Go BuildID: %w", err)
+	}
+	if !found {
+		return "", ErrNoBuildID
+	}
+	return buildID, nil
+}
+
 // GetSectionAddress returns the address of an ELF section.
 // `found` is set to false if such a section does not exist.
 func GetSectionAddress(e *elf.File, sectionName string) (
@@ -369,6 +382,52 @@ func GetSectionAddress(e *elf.File, sectionName string) (
 	}
 
 	return section.Addr, true, nil
+}
+
+// getGoNoteString returns the hex string contents of an ELF note from a note section, as described
+// in the ELF standard in Figure 2-3.
+func getGoNoteString(sectionBytes []byte) (noteString string, found bool, err error) {
+	// The data stored inside ELF notes is made of one or multiple structs, containing the
+	// following fields:
+	// 	- namesz	// 32-bit, size of "name"
+	// 	- descsz	// 32-bit, size of "desc"
+	// 	- type		// 32-bit - 0x3 in case of a BuildID, 0x100 in case of build salt
+	// 	- name		// namesz bytes, null terminated
+	// 	- desc		// descsz bytes, binary data: the actual contents of the note
+	// Because of this structure, the information of the build id starts at the 17th byte.
+	name := "Go"
+	noteType := uint32(4) // NT_GO_BUILDID
+
+	// Null terminated string
+	nameBytes := append([]byte(name), 0x0)
+	noteTypeBytes := make([]byte, 4)
+
+	binary.LittleEndian.PutUint32(noteTypeBytes, noteType)
+	noteHeader := append(noteTypeBytes, nameBytes...) // nolint:gocritic
+
+	// Try to find the note in the section
+	idx := bytes.Index(sectionBytes, noteHeader)
+	if idx == -1 {
+		return "", false, nil
+	}
+	if idx < 4 { // there needs to be room for descsz
+		return "", false, fmt.Errorf("could not read note data size")
+	}
+
+	idxDataStart := idx + len(noteHeader)
+	idxDataStart += (4 - (idxDataStart & 3)) & 3 // data is 32bit-aligned, round up
+
+	// read descsz and compute the last index of the note data
+	dataSize := binary.LittleEndian.Uint32(sectionBytes[idx-4 : idx])
+	idxDataEnd := uint64(idxDataStart) + uint64(dataSize)
+
+	// Check sanity (100 is precisely correct as we only use it for the Go Build ID)
+	if idxDataEnd > uint64(len(sectionBytes)) || dataSize > 100 {
+		return "", false, fmt.Errorf(
+			"non-sensical note: %d start index: %d, %v end index %d, size %d, section size %d",
+			idx, idxDataStart, noteHeader, idxDataEnd, dataSize, len(sectionBytes))
+	}
+	return string(sectionBytes[idxDataStart:idxDataEnd]), true, nil
 }
 
 // getNoteHexString returns the hex string contents of an ELF note from a note section, as described

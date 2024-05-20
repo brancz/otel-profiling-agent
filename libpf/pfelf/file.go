@@ -476,6 +476,17 @@ func (f *File) GetBuildID() (string, error) {
 		s = f.Section(".notes")
 	}
 	if s == nil {
+		s = f.Section(".note.go.buildid")
+		if s != nil {
+			data, err := s.Data(maxBytesSmallSection)
+			if err != nil {
+				return "", err
+			}
+
+			return getBuildIDFromGoNotes(data)
+		}
+	}
+	if s == nil {
 		return "", ErrNoBuildID
 	}
 	data, err := s.Data(maxBytesSmallSection)

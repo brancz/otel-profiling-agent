@@ -73,6 +73,9 @@ var (
 		tracer.ProbabilisticThresholdMax-1, tracer.ProbabilisticThresholdMax-1)
 	probabilisticIntervalHelp = "Time interval for which probabilistic profiling will be " +
 		"enabled or disabled."
+
+	buildIDModeHelp = "The type of build ID to report. Valid values are either" +
+		`"linker" or "hash".`
 )
 
 // Variables for command line arguments
@@ -95,6 +98,7 @@ var (
 	argMapScaleFactor         uint
 	argProbabilisticThreshold uint
 	argProbabilisticInterval  time.Duration
+	argBuildIDMode            string
 
 	// "internal" flag variables.
 	// Flag variables that are configured in "internal" builds will have to be assigned
@@ -144,6 +148,8 @@ func parseArgs() error {
 	fs.BoolVar(&argVerboseMode, "v", false, "Shorthand for -verbose.")
 	fs.BoolVar(&argVerboseMode, "verbose", false, verboseModeHelp)
 	fs.BoolVar(&argVersion, "version", false, versionHelp)
+
+	fs.StringVar(&argBuildIDMode, "build-id-mode", "linker", buildIDModeHelp)
 
 	fs.UintVar(&argProbabilisticThreshold, "probabilistic-threshold",
 		defaultProbabilisticThreshold, probabilisticThresholdHelp)

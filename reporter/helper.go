@@ -10,8 +10,10 @@ import (
 	"context"
 	"crypto/tls"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/elastic/otel-profiling-agent/config"
 	"github.com/elastic/otel-profiling-agent/libpf"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -20,6 +22,28 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
+
+type perRequestBearerToken struct {
+	token    string
+	insecure bool
+}
+
+func NewPerRequestBearerToken(token string, insecure bool) *perRequestBearerToken {
+	return &perRequestBearerToken{
+		token:    token,
+		insecure: insecure,
+	}
+}
+
+func (t *perRequestBearerToken) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
+	return map[string]string{
+		"authorization": "Bearer " + t.token,
+	}, nil
+}
+
+func (t *perRequestBearerToken) RequireTransportSecurity() bool {
+	return !t.insecure
+}
 
 // setupGrpcConnection sets up a gRPC connection instrumented with our auth interceptor
 func setupGrpcConnection(parent context.Context, c *Config,
@@ -64,6 +88,12 @@ func setupGrpcConnection(parent context.Context, c *Config,
 				MinVersion:         tls.VersionTLS13,
 				InsecureSkipVerify: false,
 			})))
+	}
+
+	if config.SecretToken() != "" {
+		opts = append(opts, grpc.WithPerRPCCredentials(
+			NewPerRequestBearerToken(strings.TrimSpace(string(config.SecretToken())), c.DisableTLS),
+		))
 	}
 
 	ctx, cancel := context.WithTimeout(parent, c.Times.GRPCConnectionTimeout())

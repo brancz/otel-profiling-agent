@@ -110,6 +110,7 @@ type Handler struct {
 type ContainerMetadata struct {
 	containerID   string
 	PodName       string
+	PodNamespace  string
 	ContainerName string
 }
 
@@ -202,24 +203,19 @@ func GetHandler(ctx context.Context, monitorInterval time.Duration) (*Handler, e
 // for the allocatable information of the nodes.
 func getPodsPerNode(ctx context.Context, instance *Handler) (int, error) {
 	instance.kubernetesClientQueryCount.Add(1)
-	nodeList, err := instance.kubeClientSet.CoreV1().Nodes().List(ctx, v1.ListOptions{
-		FieldSelector: "spec.nodeName=" + instance.nodeName,
-	})
+	node, err := instance.kubeClientSet.CoreV1().Nodes().Get(ctx,
+		instance.nodeName, v1.GetOptions{})
 	if err != nil {
-		return 0, fmt.Errorf("failed to get kubernetes nodes for '%s': %v",
+		return 0, fmt.Errorf("failed to get kubernetes node for '%s': %v",
 			instance.nodeName, err)
-	}
-
-	if len(nodeList.Items) == 0 {
-		return 0, fmt.Errorf("empty node list")
 	}
 
 	// With the ListOptions filter in place, there should be only one node listed in the
 	// return we get from the API.
-	quantity, ok := nodeList.Items[0].Status.Allocatable[corev1.ResourcePods]
+	quantity, ok := node.Status.Allocatable[corev1.ResourcePods]
 	if !ok {
 		return 0, fmt.Errorf("failed to get allocatable information from %s",
-			nodeList.Items[0].Name)
+			instance.nodeName)
 	}
 
 	return int(quantity.Value()), nil
@@ -362,7 +358,6 @@ func getDockerClient() *client.Client {
 // putCache updates the container id metadata cache for the provided pod.
 func (h *Handler) putCache(pod *corev1.Pod) {
 	log.Debugf("Update container metadata cache for pod %s", pod.Name)
-	podName := getPodName(pod)
 
 	for i := range pod.Status.ContainerStatuses {
 		var containerID string
@@ -375,36 +370,11 @@ func (h *Handler) putCache(pod *corev1.Pod) {
 
 		h.containerMetadataCache.Add(containerID, ContainerMetadata{
 			containerID:   containerID,
-			PodName:       podName,
+			PodName:       pod.Name,
+			PodNamespace:  pod.Namespace,
 			ContainerName: pod.Status.ContainerStatuses[i].Name,
 		})
 	}
-}
-
-func getPodName(pod *corev1.Pod) string {
-	podName := pod.Name
-
-	for j := range pod.OwnerReferences {
-		if strings.HasPrefix(podName, pod.OwnerReferences[j].Name) {
-			switch pod.OwnerReferences[j].Kind {
-			case "ReplicaSet":
-				// For replicaSet the Owner references Name contains the replicaset version
-				// ie 'deployment-replicaset' which we want to remove.
-				lastIndex := strings.LastIndex(pod.OwnerReferences[j].Name, "-")
-				if lastIndex < 0 {
-					// pod.OwnerReferences[j].Name does not contain a '-' so
-					// we take the full name as PodName and avoid to panic.
-					podName = pod.OwnerReferences[j].Name
-				} else {
-					podName = pod.OwnerReferences[j].Name[:lastIndex]
-				}
-			default:
-				podName = pod.OwnerReferences[j].Name
-			}
-		}
-	}
-
-	return podName
 }
 
 func matchContainerID(containerIDStr string) (string, error) {
@@ -496,7 +466,7 @@ func (h *Handler) getKubernetesPodMetadata(pidContainerID string) (
 	}
 
 	for j := range pods.Items {
-		podName := getPodName(&pods.Items[j])
+		podName := pods.Items[j].Name
 		containers := pods.Items[j].Status.ContainerStatuses
 		for i := range containers {
 			var containerID string

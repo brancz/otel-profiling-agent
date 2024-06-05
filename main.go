@@ -314,6 +314,7 @@ func mainWithExitCode() exitCode {
 
 	metrics.SetReporter(rep)
 
+	rep.ReportHostMetadata(hostMetadataMap)
 	// Now that we've sent the first host metadata update, start a goroutine to keep sending updates
 	// regularly. This is required so pf-web-service only needs to query metadata for bounded
 	// periods of time.

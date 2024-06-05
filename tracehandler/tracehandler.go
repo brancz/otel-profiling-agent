@@ -145,7 +145,7 @@ func (m *traceHandler) HandleTrace(bpfTrace *host.Trace) {
 	if traceKnown {
 		m.bpfTraceCacheHit++
 		m.reporter.ReportCountForTrace(postConvHash, timestamp, 1,
-			bpfTrace.Comm, meta.PodName, meta.ContainerName)
+			bpfTrace.Comm, meta.PodName, meta.PodNamespace, meta.ContainerName)
 		return
 	}
 	m.bpfTraceCacheMiss++
@@ -155,7 +155,7 @@ func (m *traceHandler) HandleTrace(bpfTrace *host.Trace) {
 	log.Debugf("Trace hash remap 0x%x -> 0x%x", bpfTrace.Hash, umTrace.Hash)
 	m.bpfTraceCache.Add(bpfTrace.Hash, umTrace.Hash)
 	m.reporter.ReportCountForTrace(umTrace.Hash, timestamp, 1,
-		bpfTrace.Comm, meta.PodName, meta.ContainerName)
+		bpfTrace.Comm, meta.PodName, meta.PodNamespace, meta.ContainerName)
 
 	// Trace already known to collector by UM hash?
 	if _, known := m.umTraceCache.Get(umTrace.Hash); known {

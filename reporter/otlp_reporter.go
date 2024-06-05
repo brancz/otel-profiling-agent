@@ -37,6 +37,7 @@ type traceInfo struct {
 	frameTypes     []libpf.FrameType
 	comm           string
 	podName        string
+	podNamespace   string
 	containerName  string
 	apmServiceName string
 }
@@ -138,7 +139,7 @@ func (r *OTLPReporter) ReportFramesForTrace(trace *libpf.Trace) {
 // ReportCountForTrace accepts a hash of a trace with a corresponding count and
 // caches this information.
 func (r *OTLPReporter) ReportCountForTrace(traceHash libpf.TraceHash, timestamp libpf.UnixTime32,
-	count uint16, comm, podName, containerName string) {
+	count uint16, comm, podName, podNamespace, containerName string) {
 	if v, exists := r.traces.Peek(traceHash); exists {
 		// As traces is filled from two different API endpoints,
 		// some information for the trace might be available already.
@@ -146,6 +147,7 @@ func (r *OTLPReporter) ReportCountForTrace(traceHash libpf.TraceHash, timestamp 
 		// the existing one.
 		v.comm = comm
 		v.podName = podName
+		v.podNamespace = podNamespace
 		v.containerName = containerName
 
 		r.traces.Add(traceHash, v)
@@ -153,6 +155,7 @@ func (r *OTLPReporter) ReportCountForTrace(traceHash libpf.TraceHash, timestamp 
 		r.traces.Add(traceHash, traceInfo{
 			comm:          comm,
 			podName:       podName,
+			podNamespace:  podNamespace,
 			containerName: containerName,
 		})
 	}
@@ -415,6 +418,7 @@ func (r *OTLPReporter) getResource() *resource.Resource {
 			Key:   k,
 			Value: &common.AnyValue{Value: &common.AnyValue_StringValue{StringValue: v}},
 		}
+
 		i++
 	}
 	origin := &resource.Resource{
@@ -764,6 +768,16 @@ func getTraceLabels(stringMap map[string]uint32, i traceInfo) []*pprofextended.L
 		labels = append(labels, &pprofextended.Label{
 			Key: int64(podNameIdx),
 			Str: int64(podNameValueIdx),
+		})
+	}
+
+	if i.podNamespace != "" {
+		podNamespaceIdx := getStringMapIndex(stringMap, "podNamespace")
+		podNamespaceValueIdx := getStringMapIndex(stringMap, i.podNamespace)
+
+		labels = append(labels, &pprofextended.Label{
+			Key: int64(podNamespaceIdx),
+			Str: int64(podNamespaceValueIdx),
 		})
 	}
 

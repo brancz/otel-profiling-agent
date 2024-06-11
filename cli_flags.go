@@ -76,6 +76,8 @@ var (
 
 	buildIDModeHelp = "The type of build ID to report. Valid values are either" +
 		`"linker" or "hash".`
+	noExtractDebuginfoHelp = "Disable extracting debug information from binaries. " +
+		"Note this means the executable section will be sent to the backend."
 )
 
 // Variables for command line arguments
@@ -99,6 +101,7 @@ var (
 	argProbabilisticThreshold uint
 	argProbabilisticInterval  time.Duration
 	argBuildIDMode            string
+	argNoExtractDebuginfo     bool
 
 	// "internal" flag variables.
 	// Flag variables that are configured in "internal" builds will have to be assigned
@@ -150,6 +153,8 @@ func parseArgs() error {
 	fs.BoolVar(&argVersion, "version", false, versionHelp)
 
 	fs.StringVar(&argBuildIDMode, "build-id-mode", "linker", buildIDModeHelp)
+
+	fs.BoolVar(&argNoExtractDebuginfo, "no-extract-debuginfo", false, noExtractDebuginfoHelp)
 
 	fs.UintVar(&argProbabilisticThreshold, "probabilistic-threshold",
 		defaultProbabilisticThreshold, probabilisticThresholdHelp)

@@ -306,6 +306,7 @@ func mainWithExitCode() exitCode {
 		MaxGRPCRetries:          5,
 		Times:                   times,
 		OTLPBuildIDMode:         argBuildIDMode,
+		NoExtractDebuginfo:      argNoExtractDebuginfo,
 	})
 	if err != nil {
 		msg := fmt.Sprintf("Failed to start reporting: %v", err)

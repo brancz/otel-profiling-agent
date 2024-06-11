@@ -65,6 +65,9 @@ type Config struct {
 	MaxGRPCRetries uint32
 	// The mode to use for the build ID, either "linker" or "hash".
 	OTLPBuildIDMode string
+	// Whether or not to extract debuginfo from the executables, or use the
+	// original as is for the symbol upload.
+	NoExtractDebuginfo bool
 
 	Times Times
 }

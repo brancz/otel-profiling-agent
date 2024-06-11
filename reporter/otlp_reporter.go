@@ -347,6 +347,7 @@ func StartOTLP(mainCtx context.Context, c *Config) (Reporter, error) {
 	r.symuploader, err = symuploader.NewParcaSymbolUploader(
 		v1alpha1.NewDebuginfoServiceClient(otlpGrpcConn),
 		int(cacheSize),
+		c.NoExtractDebuginfo,
 	)
 	if err != nil {
 		cancelReporting()

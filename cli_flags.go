@@ -78,6 +78,7 @@ var (
 		`"linker" or "hash".`
 	noExtractDebuginfoHelp = "Disable extracting debug information from binaries. " +
 		"Note this means the executable section will be sent to the backend."
+	uploadSymbolsHelp = "Upload symbols from local binaries to the backend."
 )
 
 // Variables for command line arguments
@@ -102,6 +103,7 @@ var (
 	argProbabilisticInterval  time.Duration
 	argBuildIDMode            string
 	argNoExtractDebuginfo     bool
+	argUploadSymbols          bool
 
 	// "internal" flag variables.
 	// Flag variables that are configured in "internal" builds will have to be assigned
@@ -154,6 +156,7 @@ func parseArgs() error {
 
 	fs.StringVar(&argBuildIDMode, "build-id-mode", "linker", buildIDModeHelp)
 
+	fs.BoolVar(&argUploadSymbols, "upload-symbols", true, uploadSymbolsHelp)
 	fs.BoolVar(&argNoExtractDebuginfo, "no-extract-debuginfo", false, noExtractDebuginfoHelp)
 
 	fs.UintVar(&argProbabilisticThreshold, "probabilistic-threshold",

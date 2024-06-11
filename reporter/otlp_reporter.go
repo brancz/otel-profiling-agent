@@ -77,6 +77,14 @@ type symbolUploader interface {
 	Upload(ctx context.Context, fileID libpf.FileID, fileName, buildID string)
 }
 
+func NewNoopSymbolUploader() symbolUploader {
+	return &noopSymbolUploader{}
+}
+
+type noopSymbolUploader struct{}
+
+func (n *noopSymbolUploader) Upload(_ context.Context, _ libpf.FileID, _ string, _ string) {}
+
 // OTLPReporter receives and transforms information to be OTLP/profiles compliant.
 type OTLPReporter struct {
 	// client for the connection to the receiver.
@@ -344,15 +352,19 @@ func StartOTLP(mainCtx context.Context, c *Config) (Reporter, error) {
 	}
 	r.client = otlpcollector.NewProfilesServiceClient(otlpGrpcConn)
 
-	r.symuploader, err = symuploader.NewParcaSymbolUploader(
-		v1alpha1.NewDebuginfoServiceClient(otlpGrpcConn),
-		int(cacheSize),
-		c.NoExtractDebuginfo,
-	)
-	if err != nil {
-		cancelReporting()
-		close(r.stopSignal)
-		return nil, err
+	r.symuploader = NewNoopSymbolUploader()
+
+	if config.UploadSymbols() {
+		r.symuploader, err = symuploader.NewParcaSymbolUploader(
+			v1alpha1.NewDebuginfoServiceClient(otlpGrpcConn),
+			int(cacheSize),
+			c.NoExtractDebuginfo,
+		)
+		if err != nil {
+			cancelReporting()
+			close(r.stopSignal)
+			return nil, err
+		}
 	}
 
 	go func() {

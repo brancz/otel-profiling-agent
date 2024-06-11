@@ -229,7 +229,7 @@ func mainWithExitCode() exitCode {
 		Verbose:                argVerboseMode,
 		DisableTLS:             argDisableTLS,
 		NoKernelVersionCheck:   argNoKernelVersionCheck,
-		UploadSymbols:          false,
+		UploadSymbols:          argUploadSymbols,
 		BpfVerifierLogLevel:    argBpfVerifierLogLevel,
 		BpfVerifierLogSize:     argBpfVerifierLogSize,
 		MonitorInterval:        argMonitorInterval,

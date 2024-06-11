@@ -9,6 +9,7 @@ package reporter
 import (
 	"context"
 	"fmt"
+	"path"
 	"time"
 
 	"github.com/elastic/otel-profiling-agent/config"
@@ -16,6 +17,8 @@ import (
 	otlpcollector "github.com/elastic/otel-profiling-agent/proto/experiments/opentelemetry/proto/collector/profiles/v1"
 	profiles "github.com/elastic/otel-profiling-agent/proto/experiments/opentelemetry/proto/profiles/v1"
 	"github.com/elastic/otel-profiling-agent/proto/experiments/opentelemetry/proto/profiles/v1/alternatives/pprofextended"
+	v1alpha1 "github.com/elastic/otel-profiling-agent/proto/experiments/parca/debuginfo/v1alpha1"
+	"github.com/elastic/otel-profiling-agent/symuploader"
 
 	"github.com/elastic/otel-profiling-agent/debug/log"
 	"github.com/elastic/otel-profiling-agent/libpf"
@@ -70,6 +73,10 @@ type funcInfo struct {
 	fileName string
 }
 
+type symbolUploader interface {
+	Upload(ctx context.Context, fileID libpf.FileID, fileName, buildID string)
+}
+
 // OTLPReporter receives and transforms information to be OTLP/profiles compliant.
 type OTLPReporter struct {
 	// client for the connection to the receiver.
@@ -105,6 +112,9 @@ type OTLPReporter struct {
 
 	// otlpBuildIDMode is the mode to use for the build ID (either "linker" or "hash").
 	otlpBuildIDMode string
+
+	// symuploader uploads symbols to a backend.
+	symuploader symbolUploader
 }
 
 // hashString is a helper function for LRUs that use string as a key.
@@ -185,8 +195,19 @@ func (r *OTLPReporter) ReportFallbackSymbol(frameID libpf.FrameID, symbol string
 // and caches this information.
 func (r *OTLPReporter) ExecutableMetadata(_ context.Context,
 	fileID libpf.FileID, fileName, buildID string) {
+	baseName := path.Base(fileName)
+	if baseName == "/" {
+		// There are circumstances where there is no filename.
+		// E.g. kernel module 'bpfilter_umh' before Linux 5.9-rc1 uses
+		// fork_usermode_blob() and launches process with a blob without
+		// filename mapped in as the executable.
+		baseName = "<anonymous-blob>"
+	}
+
+	r.symuploader.Upload(context.TODO(), fileID, fileName, buildID)
+
 	r.executables.Add(fileID, execInfo{
-		fileName: fileName,
+		fileName: baseName,
 		buildID:  buildID,
 	})
 }
@@ -322,6 +343,16 @@ func StartOTLP(mainCtx context.Context, c *Config) (Reporter, error) {
 		return nil, err
 	}
 	r.client = otlpcollector.NewProfilesServiceClient(otlpGrpcConn)
+
+	r.symuploader, err = symuploader.NewParcaSymbolUploader(
+		v1alpha1.NewDebuginfoServiceClient(otlpGrpcConn),
+		int(cacheSize),
+	)
+	if err != nil {
+		cancelReporting()
+		close(r.stopSignal)
+		return nil, err
+	}
 
 	go func() {
 		tick := time.NewTicker(c.Times.ReportInterval())

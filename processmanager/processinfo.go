@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -303,17 +304,13 @@ func (pm *ProcessManager) getELFInfo(pr process.Process, mapping *process.Mappin
 	}
 	pm.FileIDMapper.Set(hostFileID, fileID)
 
-	baseName := path.Base(mapping.Path)
-	if baseName == "/" {
-		// There are circumstances where there is no filename.
-		// E.g. kernel module 'bpfilter_umh' before Linux 5.9-rc1 uses
-		// fork_usermode_blob() and launches process with a blob without
-		// filename mapped in as the executable.
-		baseName = "<anonymous-blob>"
-	}
-
 	buildID, _ := ef.GetBuildID()
-	pm.reporter.ExecutableMetadata(context.TODO(), fileID, baseName, buildID)
+	pm.reporter.ExecutableMetadata(
+		context.TODO(),
+		fileID,
+		path.Join("/proc", strconv.Itoa(int(pr.PID())), "root", mapping.Path),
+		buildID,
+	)
 
 	return info
 }

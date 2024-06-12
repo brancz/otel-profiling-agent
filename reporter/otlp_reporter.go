@@ -377,7 +377,7 @@ func StartOTLP(mainCtx context.Context, c *Config) (Reporter, error) {
 			case <-r.stopSignal:
 				return
 			case <-tick.C:
-				if err := r.reportOTLPProfile(ctx); err != nil {
+				if err := r.reportOTLPProfile(ctx, c.Times.ReportInterval()); err != nil {
 					log.Errorf("Request failed: %v", err)
 				}
 				tick.Reset(libpf.AddJitter(c.Times.ReportInterval(), 0.2))
@@ -400,12 +400,17 @@ func StartOTLP(mainCtx context.Context, c *Config) (Reporter, error) {
 }
 
 // reportOTLPProfile creates and sends out an OTLP profile.
-func (r *OTLPReporter) reportOTLPProfile(ctx context.Context) error {
+func (r *OTLPReporter) reportOTLPProfile(ctx context.Context, reportInterval time.Duration) error {
 	profile, startTS, endTS := r.getProfile()
 
 	if len(profile.Sample) == 0 {
 		log.Debugf("Skip sending of OTLP profile with no samples")
 		return nil
+	}
+
+	// A bit of a hack, but we need to set the duration of the profile.
+	if profile.DurationNanos == 0 {
+		profile.DurationNanos = reportInterval.Nanoseconds()
 	}
 
 	pc := []*profiles.ProfileContainer{{

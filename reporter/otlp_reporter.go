@@ -451,7 +451,7 @@ func (r *OTLPReporter) reportOTLPProfile(ctx context.Context) error {
 func (r *OTLPReporter) getResource() *resource.Resource {
 	keys := r.hostmetadata.Keys()
 
-	attributes := make([]*common.KeyValue, len(keys))
+	attributes := make([]*common.KeyValue, len(keys)+1)
 	i := 0
 	for _, k := range keys {
 		v, ok := r.hostmetadata.Get(k)
@@ -465,6 +465,13 @@ func (r *OTLPReporter) getResource() *resource.Resource {
 
 		i++
 	}
+
+	// Add the name of the profile type.
+	attributes[i] = &common.KeyValue{
+		Key:   "__name__",
+		Value: &common.AnyValue{Value: &common.AnyValue_StringValue{StringValue: "otel_profiling_agent_on_cpu"}},
+	}
+
 	origin := &resource.Resource{
 		Attributes: attributes,
 	}

@@ -57,8 +57,7 @@ func setupGrpcConnection(parent context.Context, c *Config,
 		if err != nil {
 			if st, ok := status.FromError(err); ok {
 				code := st.Code()
-				if code == codes.Unauthenticated ||
-					code == codes.FailedPrecondition {
+				if code == codes.Unauthenticated {
 					log.Errorf("Setup gRPC: %v", err)
 					//nolint:errcheck
 					libpf.SleepWithJitterAndContext(parent,

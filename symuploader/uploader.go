@@ -17,6 +17,8 @@ import (
 
 	lru "github.com/elastic/go-freelru"
 	v1alpha1 "github.com/elastic/otel-profiling-agent/proto/experiments/parca/debuginfo/v1alpha1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type ParcaSymbolUploader struct {
@@ -232,6 +234,26 @@ func (u *ParcaSymbolUploader) attemptUpload(ctx context.Context, fileID libpf.Fi
 		Size:    size,
 	})
 	if err != nil {
+		if status.Code(err) == codes.FailedPrecondition {
+			// This is a race that can happen when multiple agents are trying
+			// to upload the same file. This happens when another upload is
+			// still in progress. Since we don't know if it will succeed or not
+			// we retry after a while.
+			u.retry.AddWithLifetime(fileID, false, 5*time.Minute)
+			return nil
+		}
+		if status.Code(err) == codes.AlreadyExists {
+			// This is a race that can happen when multiple agents are trying
+			// to upload the same file. The other upload already succeeded so
+			// we don't need to upload it again.
+			u.retry.Add(fileID, false)
+			return nil
+		}
+		if status.Code(err) == codes.InvalidArgument {
+			// This will never succeed, no need to retry.
+			u.retry.Add(fileID, false)
+			return nil
+		}
 		return err
 	}
 

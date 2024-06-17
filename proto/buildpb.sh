@@ -31,3 +31,8 @@ protoc --proto_path=. \
     --go_out=$OUTDIR --go_opt=paths=source_relative \
     --go-grpc_out=$OUTDIR --go-grpc_opt=paths=source_relative \
     parca/debuginfo/v1alpha1/debuginfo.proto
+
+protoc --proto_path=. \
+    --go_out=$OUTDIR --go_opt=paths=source_relative \
+    --go-grpc_out=$OUTDIR --go-grpc_opt=paths=source_relative \
+    parca/profilestore/v1alpha1/profilestore.proto

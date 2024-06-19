@@ -13,9 +13,6 @@ import (
 
 	"github.com/elastic/otel-profiling-agent/config"
 	"github.com/elastic/otel-profiling-agent/libpf/vc"
-	otlpcollector "github.com/elastic/otel-profiling-agent/proto/experiments/opentelemetry/proto/collector/profiles/v1"
-	profiles "github.com/elastic/otel-profiling-agent/proto/experiments/opentelemetry/proto/profiles/v1"
-	"github.com/elastic/otel-profiling-agent/proto/experiments/opentelemetry/proto/profiles/v1/alternatives/pprofextended"
 
 	"github.com/elastic/otel-profiling-agent/debug/log"
 	"github.com/elastic/otel-profiling-agent/libpf"
@@ -25,6 +22,8 @@ import (
 
 	lru "github.com/elastic/go-freelru"
 	"github.com/zeebo/xxh3"
+	otlpcollector "go.opentelemetry.io/proto/otlp/collector/profiles/v1experimental"
+	profiles "go.opentelemetry.io/proto/otlp/profiles/v1experimental"
 )
 
 // Assert that we implement the full Reporter interface.
@@ -420,7 +419,7 @@ func (r *OTLPReporter) getResource() *resource.Resource {
 }
 
 // getProfile returns an OTLP profile containing all collected samples up to this moment.
-func (r *OTLPReporter) getProfile() (profile *pprofextended.Profile, startTS uint64, endTS uint64) {
+func (r *OTLPReporter) getProfile() (profile *profiles.Profile, startTS uint64, endTS uint64) {
 	// Avoid overlapping locks by copying its content.
 	sampleKeys := r.samples.Keys()
 	samplesCpy := make(map[libpf.TraceHash]sample, len(sampleKeys))
@@ -461,9 +460,9 @@ func (r *OTLPReporter) getProfile() (profile *pprofextended.Profile, startTS uin
 	funcMap[funcInfo{name: "", fileName: ""}] = 0
 
 	numSamples := len(samplesCpy)
-	profile = &pprofextended.Profile{
+	profile = &profiles.Profile{
 		// SampleType - Next step: Figure out the correct SampleType.
-		Sample: make([]*pprofextended.Sample, 0, numSamples),
+		Sample: make([]*profiles.Sample, 0, numSamples),
 		// LocationIndices - Optional element we do not use.
 		// AttributeTable - Optional element we do not use.
 		// AttributeUnits - Optional element we do not use.
@@ -485,7 +484,7 @@ func (r *OTLPReporter) getProfile() (profile *pprofextended.Profile, startTS uin
 	frameIDtoFunction := make(map[libpf.FrameID]uint64)
 
 	for traceHash, sampleInfo := range samplesCpy {
-		sample := &pprofextended.Sample{}
+		sample := &profiles.Sample{}
 		sample.LocationsStartIndex = locationIndex
 
 		// Earlier we peeked into traces for traceHash and know it exists.
@@ -494,10 +493,10 @@ func (r *OTLPReporter) getProfile() (profile *pprofextended.Profile, startTS uin
 		sample.StacktraceIdIndex = getStringMapIndex(stringMap,
 			traceHash.StringNoQuotes())
 
-		sample.Timestamps = make([]uint64, 0, len(sampleInfo.timestamps))
+		sample.TimestampsUnixNano = make([]uint64, 0, len(sampleInfo.timestamps))
 		for _, ts := range sampleInfo.timestamps {
-			sample.Timestamps = append(sample.Timestamps,
-				uint64(time.Unix(int64(ts), 0).UnixMilli()))
+			sample.TimestampsUnixNano = append(sample.TimestampsUnixNano,
+				uint64(time.Unix(int64(ts), 0).UnixNano()))
 			if ts < startTS || startTS == 0 {
 				startTS = ts
 				continue
@@ -509,7 +508,7 @@ func (r *OTLPReporter) getProfile() (profile *pprofextended.Profile, startTS uin
 
 		// Walk every frame of the trace.
 		for i := range trace.frameTypes {
-			loc := &pprofextended.Location{
+			loc := &profiles.Location{
 				// Id - Optional element we do not use.
 				TypeIndex: getStringMapIndex(stringMap,
 					trace.frameTypes[i].String()),
@@ -540,7 +539,7 @@ func (r *OTLPReporter) getProfile() (profile *pprofextended.Profile, startTS uin
 						fileName = execInfo.fileName
 					}
 
-					profile.Mapping = append(profile.Mapping, &pprofextended.Mapping{
+					profile.Mapping = append(profile.Mapping, &profiles.Mapping{
 						// Id - Optional element we do not use.
 						// MemoryStart - Optional element we do not use.
 						// MemoryLImit - Optional element we do not use.
@@ -548,7 +547,7 @@ func (r *OTLPReporter) getProfile() (profile *pprofextended.Profile, startTS uin
 						Filename:   int64(getStringMapIndex(stringMap, fileName)),
 						BuildId: int64(getStringMapIndex(stringMap,
 							trace.files[i].StringNoQuotes())),
-						BuildIdKind: *pprofextended.BuildIdKind_BUILD_ID_BINARY_HASH.Enum(),
+						BuildIdKind: *profiles.BuildIdKind_BUILD_ID_BINARY_HASH.Enum(),
 						// Attributes - Optional element we do not use.
 						// HasFunctions - Optional element we do not use.
 						// HasFilenames - Optional element we do not use.
@@ -561,7 +560,7 @@ func (r *OTLPReporter) getProfile() (profile *pprofextended.Profile, startTS uin
 				// Reconstruct frameID
 				frameID := libpf.NewFrameID(trace.files[i], trace.linenos[i])
 				// Store Kernel frame information as Line message:
-				line := &pprofextended.Line{}
+				line := &profiles.Line{}
 
 				if tmpFunctionIndex, exists := frameIDtoFunction[frameID]; exists {
 					line.FunctionIndex = tmpFunctionIndex
@@ -587,7 +586,7 @@ func (r *OTLPReporter) getProfile() (profile *pprofextended.Profile, startTS uin
 				// program.
 			default:
 				// Store interpreted frame information as Line message:
-				line := &pprofextended.Line{}
+				line := &profiles.Line{}
 
 				fileIDInfo, exists := r.frames.Get(trace.files[i])
 				if !exists {
@@ -630,9 +629,9 @@ func (r *OTLPReporter) getProfile() (profile *pprofextended.Profile, startTS uin
 	log.Debugf("Reporting OTLP profile with %d samples", len(profile.Sample))
 
 	// Populate the deduplicated functions into profile.
-	funcTable := make([]*pprofextended.Function, len(funcMap))
+	funcTable := make([]*profiles.Function, len(funcMap))
 	for v, idx := range funcMap {
-		funcTable[idx] = &pprofextended.Function{
+		funcTable[idx] = &profiles.Function{
 			Name:     int64(getStringMapIndex(stringMap, v.name)),
 			Filename: int64(getStringMapIndex(stringMap, v.fileName)),
 		}
@@ -688,14 +687,14 @@ func createFunctionEntry(funcMap map[funcInfo]uint64,
 }
 
 // getTraceLabels builds OTEP/Label(s) from traceInfo.
-func getTraceLabels(stringMap map[string]uint32, i traceInfo) []*pprofextended.Label {
-	var labels []*pprofextended.Label
+func getTraceLabels(stringMap map[string]uint32, i traceInfo) []*profiles.Label {
+	var labels []*profiles.Label
 
 	if i.comm != "" {
 		commIdx := getStringMapIndex(stringMap, "comm")
 		commValueIdx := getStringMapIndex(stringMap, i.comm)
 
-		labels = append(labels, &pprofextended.Label{
+		labels = append(labels, &profiles.Label{
 			Key: int64(commIdx),
 			Str: int64(commValueIdx),
 		})
@@ -705,7 +704,7 @@ func getTraceLabels(stringMap map[string]uint32, i traceInfo) []*pprofextended.L
 		podNameIdx := getStringMapIndex(stringMap, "podName")
 		podNameValueIdx := getStringMapIndex(stringMap, i.podName)
 
-		labels = append(labels, &pprofextended.Label{
+		labels = append(labels, &profiles.Label{
 			Key: int64(podNameIdx),
 			Str: int64(podNameValueIdx),
 		})
@@ -715,7 +714,7 @@ func getTraceLabels(stringMap map[string]uint32, i traceInfo) []*pprofextended.L
 		containerNameIdx := getStringMapIndex(stringMap, "containerName")
 		containerNameValueIdx := getStringMapIndex(stringMap, i.containerName)
 
-		labels = append(labels, &pprofextended.Label{
+		labels = append(labels, &profiles.Label{
 			Key: int64(containerNameIdx),
 			Str: int64(containerNameValueIdx),
 		})
@@ -725,7 +724,7 @@ func getTraceLabels(stringMap map[string]uint32, i traceInfo) []*pprofextended.L
 		apmServiceNameIdx := getStringMapIndex(stringMap, "apmServiceName")
 		apmServiceNameValueIdx := getStringMapIndex(stringMap, i.apmServiceName)
 
-		labels = append(labels, &pprofextended.Label{
+		labels = append(labels, &profiles.Label{
 			Key: int64(apmServiceNameIdx),
 			Str: int64(apmServiceNameValueIdx),
 		})
@@ -736,7 +735,7 @@ func getTraceLabels(stringMap map[string]uint32, i traceInfo) []*pprofextended.L
 
 // getDummyMappingIndex inserts or looks up a dummy entry for interpreted FileIDs.
 func getDummyMappingIndex(fileIDtoMapping map[libpf.FileID]uint64,
-	stringMap map[string]uint32, profile *pprofextended.Profile,
+	stringMap map[string]uint32, profile *profiles.Profile,
 	fileID libpf.FileID) uint64 {
 	var locationMappingIndex uint64
 	if tmpMappingIndex, exists := fileIDtoMapping[fileID]; exists {
@@ -748,11 +747,11 @@ func getDummyMappingIndex(fileIDtoMapping map[libpf.FileID]uint64,
 
 		fileName := "DUMMY"
 
-		profile.Mapping = append(profile.Mapping, &pprofextended.Mapping{
+		profile.Mapping = append(profile.Mapping, &profiles.Mapping{
 			Filename: int64(getStringMapIndex(stringMap, fileName)),
 			BuildId: int64(getStringMapIndex(stringMap,
 				fileID.StringNoQuotes())),
-			BuildIdKind: *pprofextended.BuildIdKind_BUILD_ID_BINARY_HASH.Enum(),
+			BuildIdKind: *profiles.BuildIdKind_BUILD_ID_BINARY_HASH.Enum(),
 		})
 	}
 	return locationMappingIndex

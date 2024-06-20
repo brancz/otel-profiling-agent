@@ -1,40 +1,117 @@
 package reporter
 
 import (
+	"bytes"
+	"unsafe"
+
 	"github.com/apache/arrow/go/v16/arrow"
 	"github.com/apache/arrow/go/v16/arrow/array"
 	"github.com/apache/arrow/go/v16/arrow/memory"
 )
 
+func binaryDictionaryRunEndBuilder(arr array.Builder) *BinaryDictionaryRunEndBuilder {
+	ree := arr.(*array.RunEndEncodedBuilder)
+	return &BinaryDictionaryRunEndBuilder{
+		ree: ree,
+		bd:  ree.ValueBuilder().(*array.BinaryDictionaryBuilder),
+	}
+}
+
+type BinaryDictionaryRunEndBuilder struct {
+	ree *array.RunEndEncodedBuilder
+	bd  *array.BinaryDictionaryBuilder
+}
+
+func (b *BinaryDictionaryRunEndBuilder) Append(v []byte) {
+	if b.bd.Len() > 0 && bytes.Equal(v, b.bd.Value(b.bd.Len()-1)) {
+		b.ree.ContinueRun(1)
+		return
+	}
+	b.ree.Append(1)
+	b.bd.Append(v)
+}
+
+func (b *BinaryDictionaryRunEndBuilder) AppendString(v string) {
+	b.Append(unsafeStringToBytes(v))
+}
+
+func unsafeStringToBytes(s string) []byte {
+	return unsafe.Slice(unsafe.StringData(s), len(s))
+}
+
+func uint64RunEndBuilder(arr array.Builder) *Uint64RunEndBuilder {
+	ree := arr.(*array.RunEndEncodedBuilder)
+	return &Uint64RunEndBuilder{
+		ree: ree,
+		ub:  ree.ValueBuilder().(*array.Uint64Builder),
+	}
+}
+
+type Uint64RunEndBuilder struct {
+	ree *array.RunEndEncodedBuilder
+	ub  *array.Uint64Builder
+}
+
+func (b *Uint64RunEndBuilder) Append(v uint64) {
+	if b.ub.Len() > 0 && v == b.ub.Value(b.ub.Len()-1) {
+		b.ree.ContinueRun(1)
+		return
+	}
+	b.ree.Append(1)
+	b.ub.Append(v)
+}
+
+type Int64RunEndBuilder struct {
+	ree *array.RunEndEncodedBuilder
+	ib  *array.Int64Builder
+}
+
+func int64RunEndBuilder(arr array.Builder) *Int64RunEndBuilder {
+	ree := arr.(*array.RunEndEncodedBuilder)
+	return &Int64RunEndBuilder{
+		ree: ree,
+		ib:  ree.ValueBuilder().(*array.Int64Builder),
+	}
+}
+
+func (b *Int64RunEndBuilder) Append(v int64) {
+	if b.ib.Len() > 0 && v == b.ib.Value(b.ib.Len()-1) {
+		b.ree.ContinueRun(1)
+		return
+	}
+	b.ree.Append(1)
+	b.ib.Append(v)
+}
+
 type Writer struct {
 	recordBuilder *array.RecordBuilder
 
-	LabelBuildersMap   map[string]*array.BinaryDictionaryBuilder
-	LabelBuilders      []*array.BinaryDictionaryBuilder
+	LabelBuildersMap   map[string]*BinaryDictionaryRunEndBuilder
+	LabelBuilders      []*BinaryDictionaryRunEndBuilder
 	LocationsList      *array.ListBuilder
 	Locations          *array.StructBuilder
 	Address            *array.Uint64Builder
-	FrameType          *array.BinaryDictionaryBuilder
-	MappingStart       *array.Uint64Builder
-	MappingLimit       *array.Uint64Builder
-	MappingOffset      *array.Uint64Builder
-	MappingFile        *array.BinaryDictionaryBuilder
-	MappingBuildID     *array.BinaryDictionaryBuilder
+	FrameType          *BinaryDictionaryRunEndBuilder
+	MappingStart       *Uint64RunEndBuilder
+	MappingLimit       *Uint64RunEndBuilder
+	MappingOffset      *Uint64RunEndBuilder
+	MappingFile        *BinaryDictionaryRunEndBuilder
+	MappingBuildID     *BinaryDictionaryRunEndBuilder
 	Lines              *array.ListBuilder
 	Line               *array.StructBuilder
 	LineNumber         *array.Int64Builder
 	FunctionName       *array.BinaryDictionaryBuilder
 	FunctionSystemName *array.BinaryDictionaryBuilder
-	FunctionFilename   *array.BinaryDictionaryBuilder
+	FunctionFilename   *BinaryDictionaryRunEndBuilder
 	FunctionStartLine  *array.Int64Builder
 	Value              *array.Int64Builder
-	Producer           *array.BinaryDictionaryBuilder
-	SampleType         *array.BinaryDictionaryBuilder
-	SampleUnit         *array.BinaryDictionaryBuilder
-	PeriodType         *array.BinaryDictionaryBuilder
-	PeriodUnit         *array.BinaryDictionaryBuilder
-	Temporality        *array.BinaryDictionaryBuilder
-	Period             *array.Int64Builder
+	Producer           *BinaryDictionaryRunEndBuilder
+	SampleType         *BinaryDictionaryRunEndBuilder
+	SampleUnit         *BinaryDictionaryRunEndBuilder
+	PeriodType         *BinaryDictionaryRunEndBuilder
+	PeriodUnit         *BinaryDictionaryRunEndBuilder
+	Temporality        *BinaryDictionaryRunEndBuilder
+	Period             *Int64RunEndBuilder
 	Duration           *array.Int64Builder
 	Timestamp          *array.Int64Builder
 }
@@ -64,22 +141,31 @@ var LocationsField = arrow.Field{
 		Type: arrow.PrimitiveTypes.Uint64,
 	}, {
 		Name: "frame_type",
-		Type: &arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		Type: arrow.RunEndEncodedOf(
+			arrow.PrimitiveTypes.Int32,
+			&arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		),
 	}, {
 		Name: "mapping_start",
-		Type: arrow.PrimitiveTypes.Uint64,
+		Type: arrow.RunEndEncodedOf(arrow.PrimitiveTypes.Int32, arrow.PrimitiveTypes.Uint64),
 	}, {
 		Name: "mapping_limit",
-		Type: arrow.PrimitiveTypes.Uint64,
+		Type: arrow.RunEndEncodedOf(arrow.PrimitiveTypes.Int32, arrow.PrimitiveTypes.Uint64),
 	}, {
 		Name: "mapping_offset",
-		Type: arrow.PrimitiveTypes.Uint64,
+		Type: arrow.RunEndEncodedOf(arrow.PrimitiveTypes.Int32, arrow.PrimitiveTypes.Uint64),
 	}, {
 		Name: "mapping_file",
-		Type: &arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		Type: arrow.RunEndEncodedOf(
+			arrow.PrimitiveTypes.Int32,
+			&arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		),
 	}, {
 		Name: "mapping_build_id",
-		Type: &arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		Type: arrow.RunEndEncodedOf(
+			arrow.PrimitiveTypes.Int32,
+			&arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		),
 	}, {
 		Name: "lines",
 		Type: arrow.ListOf(arrow.StructOf([]arrow.Field{{
@@ -93,7 +179,10 @@ var LocationsField = arrow.Field{
 			Type: &arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
 		}, {
 			Name: "function_filename",
-			Type: &arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+			Type: arrow.RunEndEncodedOf(
+				arrow.PrimitiveTypes.Int32,
+				&arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+			),
 		}, {
 			Name: "function_start_line",
 			Type: arrow.PrimitiveTypes.Int64,
@@ -112,31 +201,49 @@ func ArrowSamplesField(profileLabelFields []arrow.Field) []arrow.Field {
 	}
 	fields[numFields-9] = arrow.Field{
 		Name: "producer",
-		Type: &arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		Type: arrow.RunEndEncodedOf(
+			arrow.PrimitiveTypes.Int32,
+			&arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		),
 	}
 	fields[numFields-8] = arrow.Field{
 		Name: "sample_type",
-		Type: &arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		Type: arrow.RunEndEncodedOf(
+			arrow.PrimitiveTypes.Int32,
+			&arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		),
 	}
 	fields[numFields-7] = arrow.Field{
 		Name: "sample_unit",
-		Type: &arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		Type: arrow.RunEndEncodedOf(
+			arrow.PrimitiveTypes.Int32,
+			&arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		),
 	}
 	fields[numFields-6] = arrow.Field{
 		Name: "period_type",
-		Type: &arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		Type: arrow.RunEndEncodedOf(
+			arrow.PrimitiveTypes.Int32,
+			&arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		),
 	}
 	fields[numFields-5] = arrow.Field{
 		Name: "period_unit",
-		Type: &arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		Type: arrow.RunEndEncodedOf(
+			arrow.PrimitiveTypes.Int32,
+			&arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		),
 	}
 	fields[numFields-4] = arrow.Field{
 		Name: "temporality",
-		Type: &arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		Type: arrow.RunEndEncodedOf(
+			arrow.PrimitiveTypes.Int32,
+			&arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+		),
 	}
 	fields[numFields-3] = arrow.Field{
 		Name: "period",
-		Type: arrow.PrimitiveTypes.Int64,
+		Type: arrow.RunEndEncodedOf(arrow.PrimitiveTypes.Int32, arrow.PrimitiveTypes.Int64),
 	}
 	fields[numFields-2] = arrow.Field{
 		Name: "duration",
@@ -169,8 +276,11 @@ func NewV1Writer(pool memory.Allocator, labelNames []string) Writer {
 	labelFields := make([]arrow.Field, len(labelNames))
 	for i, name := range labelNames {
 		labelFields[i] = arrow.Field{
-			Name:     ColumnLabelsPrefix + name,
-			Type:     &arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+			Name: ColumnLabelsPrefix + name,
+			Type: arrow.RunEndEncodedOf(
+				arrow.PrimitiveTypes.Int32,
+				&arrow.DictionaryType{IndexType: arrow.PrimitiveTypes.Uint32, ValueType: arrow.BinaryTypes.Binary},
+			),
 			Nullable: true,
 		}
 	}
@@ -178,10 +288,10 @@ func NewV1Writer(pool memory.Allocator, labelNames []string) Writer {
 	b := array.NewRecordBuilder(pool, ArrowSchemaV1(labelFields))
 
 	labelNum := len(labelFields)
-	labelBuilders := make([]*array.BinaryDictionaryBuilder, labelNum)
-	labelBuildersMap := make(map[string]*array.BinaryDictionaryBuilder, labelNum)
+	labelBuilders := make([]*BinaryDictionaryRunEndBuilder, labelNum)
+	labelBuildersMap := make(map[string]*BinaryDictionaryRunEndBuilder, labelNum)
 	for i := 0; i < labelNum; i++ {
-		labelBuilders[i] = b.Field(i).(*array.BinaryDictionaryBuilder)
+		labelBuilders[i] = binaryDictionaryRunEndBuilder(b.Field(i))
 		labelBuildersMap[labelNames[i]] = labelBuilders[i]
 	}
 
@@ -189,30 +299,30 @@ func NewV1Writer(pool memory.Allocator, labelNames []string) Writer {
 	locations := locationsList.ValueBuilder().(*array.StructBuilder)
 
 	addresses := locations.FieldBuilder(0).(*array.Uint64Builder)
-	frameType := locations.FieldBuilder(1).(*array.BinaryDictionaryBuilder)
+	frameType := binaryDictionaryRunEndBuilder(locations.FieldBuilder(1))
 
-	mappingStart := locations.FieldBuilder(2).(*array.Uint64Builder)
-	mappingLimit := locations.FieldBuilder(3).(*array.Uint64Builder)
-	mappingOffset := locations.FieldBuilder(4).(*array.Uint64Builder)
-	mappingFile := locations.FieldBuilder(5).(*array.BinaryDictionaryBuilder)
-	mappingBuildID := locations.FieldBuilder(6).(*array.BinaryDictionaryBuilder)
+	mappingStart := uint64RunEndBuilder(locations.FieldBuilder(2))
+	mappingLimit := uint64RunEndBuilder(locations.FieldBuilder(3))
+	mappingOffset := uint64RunEndBuilder(locations.FieldBuilder(4))
+	mappingFile := binaryDictionaryRunEndBuilder(locations.FieldBuilder(5))
+	mappingBuildID := binaryDictionaryRunEndBuilder(locations.FieldBuilder(6))
 
 	lines := locations.FieldBuilder(7).(*array.ListBuilder)
 	line := lines.ValueBuilder().(*array.StructBuilder)
 	lineNumber := line.FieldBuilder(0).(*array.Int64Builder)
 	functionName := line.FieldBuilder(1).(*array.BinaryDictionaryBuilder)
 	functionSystemName := line.FieldBuilder(2).(*array.BinaryDictionaryBuilder)
-	functionFilename := line.FieldBuilder(3).(*array.BinaryDictionaryBuilder)
+	functionFilename := binaryDictionaryRunEndBuilder(line.FieldBuilder(3))
 	functionStartLine := line.FieldBuilder(4).(*array.Int64Builder)
 
 	value := b.Field(labelNum + 1).(*array.Int64Builder)
-	producer := b.Field(labelNum + 2).(*array.BinaryDictionaryBuilder)
-	sampleType := b.Field(labelNum + 3).(*array.BinaryDictionaryBuilder)
-	sampleUnit := b.Field(labelNum + 4).(*array.BinaryDictionaryBuilder)
-	periodType := b.Field(labelNum + 5).(*array.BinaryDictionaryBuilder)
-	periodUnit := b.Field(labelNum + 6).(*array.BinaryDictionaryBuilder)
-	temporality := b.Field(labelNum + 7).(*array.BinaryDictionaryBuilder)
-	period := b.Field(labelNum + 8).(*array.Int64Builder)
+	producer := binaryDictionaryRunEndBuilder(b.Field(labelNum + 2))
+	sampleType := binaryDictionaryRunEndBuilder(b.Field(labelNum + 3))
+	sampleUnit := binaryDictionaryRunEndBuilder(b.Field(labelNum + 4))
+	periodType := binaryDictionaryRunEndBuilder(b.Field(labelNum + 5))
+	periodUnit := binaryDictionaryRunEndBuilder(b.Field(labelNum + 6))
+	temporality := binaryDictionaryRunEndBuilder(b.Field(labelNum + 7))
+	period := int64RunEndBuilder(b.Field(labelNum + 8))
 	duration := b.Field(labelNum + 9).(*array.Int64Builder)
 	timestamp := b.Field(labelNum + 10).(*array.Int64Builder)
 

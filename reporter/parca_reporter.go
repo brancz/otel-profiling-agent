@@ -412,13 +412,12 @@ func (r *ParcaReporter) newWriter() Writer {
 	return w
 }
 
-func (r *ParcaReporter) writeCommonLabels(w Writer, rows int) {
+func (r *ParcaReporter) writeCommonLabels(w Writer, rows uint64) {
 	hostnameLabels := w.LabelBuildersMap["hostname"]
 	hostname := r.getHostname()
 
-	for i := 0; i < rows; i++ {
-		hostnameLabels.AppendString(hostname)
-	}
+	hostnameLabels.ree.Append(rows)
+	hostnameLabels.bd.AppendString(hostname)
 }
 
 // getProfile returns an OTLP profile containing all collected samples up to this moment.
@@ -600,8 +599,6 @@ func (r *ParcaReporter) getProfile(ctx context.Context, previous, now time.Time)
 		w.Value.Append(int64(sampleInfo.count))
 	}
 
-	r.writeCommonLabels(w, len(samplesCpy))
-
 	var (
 		ts, duration int64
 	)
@@ -617,20 +614,29 @@ func (r *ParcaReporter) getProfile(ctx context.Context, previous, now time.Time)
 		ts = now.UnixMilli()
 	}
 
+	rows := uint64(w.Value.Len())
+
+	r.writeCommonLabels(w, rows)
+	w.Producer.ree.Append(rows)
+	w.Producer.bd.AppendString("parca_agent")
+	w.SampleType.ree.Append(rows)
+	w.SampleType.bd.AppendString("samples")
+	w.SampleUnit.ree.Append(rows)
+	w.SampleUnit.bd.AppendString("count")
+	w.PeriodType.ree.Append(rows)
+	w.PeriodType.bd.AppendString("cpu")
+	w.PeriodUnit.ree.Append(rows)
+	w.PeriodUnit.bd.AppendString("nanoseconds")
+	w.Temporality.ree.Append(rows)
+	w.Temporality.bd.AppendString("delta")
+	w.Period.ree.Append(rows)
 	// Since the period is of type cpu nanoseconds it is the time between
 	// samples.
-	period := 1e9 / int64(config.SamplesPerSecond())
-	for i := 0; i < w.Value.Len(); i++ {
-		w.Producer.AppendString("parca_agent")
-		w.SampleType.AppendString("samples")
-		w.SampleUnit.AppendString("count")
-		w.PeriodType.AppendString("cpu")
-		w.PeriodUnit.AppendString("nanoseconds")
-		w.Temporality.AppendString("delta")
-		w.Period.Append(period)
-		w.Timestamp.Append(ts)
-		w.Duration.Append(duration)
-	}
+	w.Period.ib.Append(1e9 / int64(config.SamplesPerSecond()))
+	w.Timestamp.ree.Append(rows)
+	w.Timestamp.ib.Append(ts)
+	w.Duration.ree.Append(rows)
+	w.Duration.ib.Append(duration)
 
 	return w.NewRecord()
 }

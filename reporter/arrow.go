@@ -112,8 +112,8 @@ type Writer struct {
 	PeriodUnit         *BinaryDictionaryRunEndBuilder
 	Temporality        *BinaryDictionaryRunEndBuilder
 	Period             *Int64RunEndBuilder
-	Duration           *array.Int64Builder
-	Timestamp          *array.Int64Builder
+	Duration           *Int64RunEndBuilder
+	Timestamp          *Int64RunEndBuilder
 }
 
 func (w *Writer) NewRecord() arrow.Record {
@@ -247,11 +247,11 @@ func ArrowSamplesField(profileLabelFields []arrow.Field) []arrow.Field {
 	}
 	fields[numFields-2] = arrow.Field{
 		Name: "duration",
-		Type: arrow.PrimitiveTypes.Int64,
+		Type: arrow.RunEndEncodedOf(arrow.PrimitiveTypes.Int32, arrow.PrimitiveTypes.Int64),
 	}
 	fields[numFields-1] = arrow.Field{
 		Name: "timestamp",
-		Type: arrow.PrimitiveTypes.Int64,
+		Type: arrow.RunEndEncodedOf(arrow.PrimitiveTypes.Int32, arrow.PrimitiveTypes.Int64),
 	}
 
 	return fields
@@ -323,8 +323,8 @@ func NewV1Writer(pool memory.Allocator, labelNames []string) Writer {
 	periodUnit := binaryDictionaryRunEndBuilder(b.Field(labelNum + 6))
 	temporality := binaryDictionaryRunEndBuilder(b.Field(labelNum + 7))
 	period := int64RunEndBuilder(b.Field(labelNum + 8))
-	duration := b.Field(labelNum + 9).(*array.Int64Builder)
-	timestamp := b.Field(labelNum + 10).(*array.Int64Builder)
+	duration := int64RunEndBuilder(b.Field(labelNum + 9))
+	timestamp := int64RunEndBuilder(b.Field(labelNum + 10))
 
 	return Writer{
 		recordBuilder:      b,

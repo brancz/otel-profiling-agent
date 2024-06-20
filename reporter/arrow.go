@@ -11,24 +11,34 @@ import (
 
 func binaryDictionaryRunEndBuilder(arr array.Builder) *BinaryDictionaryRunEndBuilder {
 	ree := arr.(*array.RunEndEncodedBuilder)
+	bd := ree.ValueBuilder().(*array.BinaryDictionaryBuilder)
+	idx := bd.IndexBuilder().Builder.(*array.Uint32Builder)
 	return &BinaryDictionaryRunEndBuilder{
 		ree: ree,
 		bd:  ree.ValueBuilder().(*array.BinaryDictionaryBuilder),
+		idx: idx,
 	}
 }
 
 type BinaryDictionaryRunEndBuilder struct {
 	ree *array.RunEndEncodedBuilder
 	bd  *array.BinaryDictionaryBuilder
+	idx *array.Uint32Builder
 }
 
 func (b *BinaryDictionaryRunEndBuilder) Append(v []byte) {
-	if b.bd.Len() > 0 && bytes.Equal(v, b.bd.Value(b.bd.Len()-1)) {
+	if b.idx.Len() > 0 &&
+		!b.idx.IsNull(b.idx.Len()-1) &&
+		bytes.Equal(v, b.bd.Value(int(b.idx.Value(b.idx.Len()-1)))) {
 		b.ree.ContinueRun(1)
 		return
 	}
 	b.ree.Append(1)
 	b.bd.Append(v)
+}
+
+func (b *BinaryDictionaryRunEndBuilder) AppendNull() {
+	b.ree.AppendNull()
 }
 
 func (b *BinaryDictionaryRunEndBuilder) AppendString(v string) {

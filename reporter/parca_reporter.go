@@ -492,25 +492,28 @@ func (r *ParcaReporter) getProfile(ctx context.Context, previous, now time.Time)
 
 				execInfo, exists := r.executables.Get(trace.files[i])
 
-				// Next step: Select a proper default value,
-				// if the name of the executable is not known yet.
-				var fileName = "UNKNOWN"
-				if exists {
-					fileName = execInfo.fileName
-				}
-
 				w.MappingStart.Append(uint64(0))
 				w.MappingLimit.Append(uint64(0))
 				w.MappingOffset.Append(uint64(trace.linenos[i]))
-				w.MappingFile.AppendString(fileName)
-				w.MappingBuildID.AppendString(execInfo.buildID)
+				if exists && execInfo.fileName != "" {
+					w.MappingFile.AppendString(execInfo.fileName)
+				} else {
+					// Next step: Select a proper default value,
+					// if the name of the executable is not known yet.
+					w.MappingFile.AppendString("UNKNOWN")
+				}
+				if exists && execInfo.buildID != "" {
+					w.MappingBuildID.AppendString(execInfo.buildID)
+				} else {
+					w.MappingBuildID.AppendNull()
+				}
 				w.Lines.Append(false)
 			case libpf.KernelFrame:
 				w.MappingStart.Append(uint64(0))
 				w.MappingLimit.Append(uint64(0))
 				w.MappingOffset.Append(uint64(0))
 				w.MappingFile.AppendString("[kernel.kallsyms]")
-				w.MappingBuildID.AppendString("")
+				w.MappingBuildID.AppendNull()
 
 				// Reconstruct frameID
 				frameID := libpf.NewFrameID(trace.files[i], trace.linenos[i])
@@ -538,13 +541,13 @@ func (r *ParcaReporter) getProfile(ctx context.Context, previous, now time.Time)
 				w.MappingLimit.Append(uint64(0))
 				w.MappingOffset.Append(uint64(0))
 				w.MappingFile.AppendString("agent-internal-error-frame")
-				w.MappingBuildID.AppendString("")
+				w.MappingBuildID.AppendNull()
 				w.Lines.Append(true)
 				w.Line.Append(true)
 				w.LineNumber.Append(int64(0))
 				w.FunctionName.AppendString("aborted")
 				w.FunctionSystemName.AppendString("")
-				w.FunctionFilename.AppendString("")
+				w.FunctionFilename.AppendNull()
 				w.FunctionStartLine.Append(int64(0))
 			default:
 				var (
@@ -581,7 +584,7 @@ func (r *ParcaReporter) getProfile(ctx context.Context, previous, now time.Time)
 				w.MappingLimit.Append(uint64(0))
 				w.MappingOffset.Append(uint64(0))
 				w.MappingFile.AppendString(frameKind.String())
-				w.MappingBuildID.AppendString("")
+				w.MappingBuildID.AppendNull()
 				w.Lines.Append(true)
 				w.Line.Append(true)
 				w.LineNumber.Append(lineNumber)

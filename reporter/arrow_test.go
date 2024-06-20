@@ -3,6 +3,8 @@ package reporter
 import (
 	"testing"
 
+	"github.com/apache/arrow/go/v16/arrow"
+	"github.com/apache/arrow/go/v16/arrow/array"
 	"github.com/apache/arrow/go/v16/arrow/memory"
 )
 
@@ -41,7 +43,35 @@ func TestArrow(t *testing.T) {
 	w.FunctionSystemName.AppendString("main")
 	w.FunctionFilename.AppendString("main.c")
 	w.FunctionStartLine.Append(120)
+	w.Lines.Append(true)
+	w.Line.Append(true)
+	w.LineNumber.Append(124)
+	w.FunctionName.AppendString("main")
+	w.FunctionSystemName.AppendString("main")
+	w.FunctionFilename.AppendString("main.c")
+	w.FunctionStartLine.Append(120)
 
 	r := w.NewRecord()
 	defer r.Release()
+}
+
+func TestBinaryDictionaryRunEndBuilder(t *testing.T) {
+	mem := memory.NewCheckedAllocator(memory.NewGoAllocator())
+	defer mem.AssertSize(t, 0)
+
+	b := array.NewBuilder(mem, arrow.RunEndEncodedOf(
+		arrow.PrimitiveTypes.Int32,
+		&arrow.DictionaryType{
+			IndexType: arrow.PrimitiveTypes.Uint32,
+			ValueType: arrow.BinaryTypes.Binary,
+		},
+	))
+	defer b.Release()
+
+	rb := binaryDictionaryRunEndBuilder(b)
+	rb.AppendString("test")
+	rb.AppendString("test1")
+	rb.AppendString("test")
+	rb.AppendString("test3")
+	rb.AppendString("test")
 }

@@ -1021,8 +1021,17 @@ func AddTimes(events []CuptiKernelEvent) []CudaTraceOutput {
 	pid := libpf.PID(events[0].Pid)
 	value, ok := gpuFixers.Load(pid)
 	if !ok {
-		log.Warnf("no GPU fixer found for PID %d in AddTimes", pid)
-		return nil
+		// events[0]'s fixer may be gone (e.g. its process already exited
+		// and was cleaned up) even though the rest of this batch belongs
+		// to other, still-live PIDs -- fall back to a per-event lookup
+		// instead of dropping the whole batch on one missing fixer.
+		log.Warnf("no GPU fixer found for PID %d in AddTimes; falling back to per-event lookup", pid)
+		for i := range events {
+			if out, ok := addTimeSingle(&events[i]); ok {
+				outputs = append(outputs, out)
+			}
+		}
+		return outputs
 	}
 	fixer := value.(*gpuTraceFixer)
 

@@ -93,7 +93,9 @@ struct pc_sample_event {
   u32 pid;
   struct cupti_pc_data data; // 56 bytes (packed but naturally aligned)
   u32 correlation_id;        // CUDA 12.4+ extension, follows immediately
-  u32 _pad;                  // align next field to 8
+  // Device the collecting CUcontext is bound to (fixed for its lifetime).
+  // Was 8-byte alignment padding; repurposed since the size/alignment match.
+  u32 device_id;
   char function_name[MAX_FUNC_NAME_LEN];
   struct cupti_stall_reason stall_reasons[MAX_STALL_REASONS];
 };
@@ -130,6 +132,7 @@ struct cuda_scratch {
   u64 pc_ptrs_base;
   u32 pc_count;
   u32 pc_next_offset; // start of the next pc-sample chunk to process; 0 on entry
+  u32 pc_device_id;
 };
 
 struct cuda_scratch_heap_t {
@@ -527,7 +530,8 @@ int BPF_USDT(cuda_stall_reason_map, u64 names_base, u32 count)
 // with the next iteration's head, blowing past the 1M-insn complexity cap.
 // A single termination path is dramatically cheaper to verify.
 static EBPF_INLINE int
-process_pc_sample_chunk(struct pt_regs *ctx, u64 ptrs_base, u32 count, u32 start_offset)
+process_pc_sample_chunk(
+  struct pt_regs *ctx, u64 ptrs_base, u32 count, u32 start_offset, u32 device_id)
 {
   u64 pid_tgid = bpf_get_current_pid_tgid();
   u32 pid      = pid_tgid >> 32;
@@ -578,6 +582,7 @@ process_pc_sample_chunk(struct pt_regs *ctx, u64 ptrs_base, u32 count, u32 start
 
       evt->event_type = EVENT_TYPE_PC_SAMPLE;
       evt->pid        = pid;
+      evt->device_id  = device_id;
 
       // bpf_probe_read_user_str returns -EFAULT on a NULL ptr without zeroing
       // the destination, and ringbuf-reserved memory isn't pre-zeroed.  Pre-
@@ -619,6 +624,7 @@ process_pc_sample_chunk(struct pt_regs *ctx, u64 ptrs_base, u32 count, u32 start
     scratch->pc_ptrs_base   = ptrs_base;
     scratch->pc_count       = count;
     scratch->pc_next_offset = end;
+    scratch->pc_device_id   = device_id;
     bpf_tail_call(ctx, &cuda_progs, 1);
     DEBUG_PRINT("cuda_pc_sample_batch: tail_call failed at offset=%u", end);
   }
@@ -629,16 +635,16 @@ err_exit:
   return 0;
 }
 
-// USDT: parcagpu/pc_sample_batch(const void **ptrs, uint32 count).
+// USDT: parcagpu/pc_sample_batch(const void **ptrs, uint32 count, uint32 deviceId).
 // Entry point for single-shot uprobe attachment.  Processes the first chunk
 // and tail-chains to cuda_pc_sample_batch_tail for any remaining chunks.
 SEC("usdt/parcagpu/pc_sample_batch")
-int BPF_USDT(cuda_pc_sample_batch, u64 ptrs_base, u32 count)
+int BPF_USDT(cuda_pc_sample_batch, u64 ptrs_base, u32 count, u32 device_id)
 {
   if (count > BPF_PC_TOTAL_LIMIT) {
     count = BPF_PC_TOTAL_LIMIT;
   }
-  return process_pc_sample_chunk(ctx, ptrs_base, count, 0);
+  return process_pc_sample_chunk(ctx, ptrs_base, count, 0, device_id);
 }
 
 // Tail-call entry point for the chunk chain.  Reads continuation state from
@@ -653,7 +659,8 @@ int cuda_pc_sample_batch_tail(struct pt_regs *ctx)
     return 0;
   }
   return process_pc_sample_chunk(
-    ctx, scratch->pc_ptrs_base, scratch->pc_count, scratch->pc_next_offset);
+    ctx, scratch->pc_ptrs_base, scratch->pc_count, scratch->pc_next_offset,
+    scratch->pc_device_id);
 }
 
 // USDT: parcagpu/error(int32 code, const char *message, const char *component).
@@ -749,6 +756,7 @@ int cuda_probe(struct pt_regs *ctx)
     scratch->pc_ptrs_base   = (u64)bpf_usdt_arg0(ctx);
     scratch->pc_count       = cnt;
     scratch->pc_next_offset = 0;
+    scratch->pc_device_id   = (u32)bpf_usdt_arg2(ctx);
     bpf_tail_call(ctx, &cuda_progs, 1);
     break;
   }

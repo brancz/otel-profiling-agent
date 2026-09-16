@@ -104,7 +104,7 @@ type CuptiPCSampleEvent struct {
 	Pid           uint32
 	Data          CuptiPCData
 	CorrelationID uint32
-	_             uint32 // align next field to 8
+	DeviceID      uint32 // device the collecting CUcontext is bound to; see parcagpu's ConfigureData.device
 	FunctionName  [128]byte
 	StallReasons  [64]CuptiStallReason
 }
@@ -198,6 +198,10 @@ type gpuTraceFixer struct {
 	// pendingPCSamples stores PC samples that arrived before their correlation
 	// trace. Resolved when addSingleTrace/addGraphTrace stores the trace.
 	pendingPCSamples map[uint32][]pendingPCSample
+
+	// pcSampleHasDevice is whether this pid's pc_sample_batch probe carries the
+	// deviceId argument (resolved once at Attach); false omits cuda_device instead of reporting device 0.
+	pcSampleHasDevice bool
 }
 
 type pendingPCSample struct {
@@ -206,13 +210,14 @@ type pendingPCSample struct {
 	arrivalNs int64 // time.Now().UnixNano() when this sample was buffered
 }
 
-func newGpuTraceFixer() *gpuTraceFixer {
+func newGpuTraceFixer(pcSampleHasDevice bool) *gpuTraceFixer {
 	return &gpuTraceFixer{
 		timesAwaitingTraces: make(map[uint32][]CuptiKernelEvent),
 		tracesAwaitingTimes: make(map[uint32]*SymbolizedCudaTrace),
 		timesStoredAtNs:     make(map[uint32]int64),
 		pcTraces:            make(map[uint32]*SymbolizedCudaTrace),
 		pendingPCSamples:    make(map[uint32][]pendingPCSample),
+		pcSampleHasDevice:   pcSampleHasDevice,
 	}
 }
 
@@ -460,7 +465,22 @@ func (d *data) Attach(ebpf interpreter.EbpfHandler, pid libpf.PID, _ libpf.Addre
 	}
 	le.refs++
 
-	gpuFixers.Store(pid, newGpuTraceFixer())
+	var pcSampleHasDevice bool
+	for _, probe := range d.probes {
+		if probe.Name != "pc_sample_batch" {
+			continue
+		}
+		spec, err := pfelf.ParseUSDTArguments(probe.Arguments)
+		pcSampleHasDevice = err == nil && spec.Arg_cnt >= 3
+		if err == nil && !pcSampleHasDevice {
+			log.Warnf("[cuda] pid=%d: pc_sample_batch has %d args (need 3 for cuda_device) — "+
+				"built from an older parcagpu; PC samples won't carry a cuda_device label",
+				pid, spec.Arg_cnt)
+		}
+		break
+	}
+
+	gpuFixers.Store(pid, newGpuTraceFixer(pcSampleHasDevice))
 	return &Instance{
 		d:    d,
 		path: d.path,
@@ -714,6 +734,11 @@ func emitPCSample(ev *CuptiPCSampleEvent, rep reporter.TraceReporter, cpuTrace *
 		}),
 	})
 
+	var hasDevice bool
+	if value, ok := gpuFixers.Load(libpf.PID(ev.Pid)); ok {
+		hasDevice = value.(*gpuTraceFixer).pcSampleHasDevice
+	}
+
 	// One sample per stall reason: the same single CUDAPCFrame, distinguished by
 	// the "cuda_stall_reason" label and weighted by that reason's sample count.
 	count := min(ev.Data.StallReasonCount, maxStallReasons)
@@ -724,7 +749,7 @@ func emitPCSample(ev *CuptiPCSampleEvent, rep reporter.TraceReporter, cpuTrace *
 		}
 
 		trace := buildGpuPCTrace(cpuTrace, cubinMapping, kernelName, ev.Data.PCOffset)
-		trace.CustomLabels = gpuPCLabels(LookupStallReason(ev.Pid, sr.Index), mnemonic)
+		trace.CustomLabels = gpuPCLabels(LookupStallReason(ev.Pid, sr.Index), mnemonic, ev.DeviceID, hasDevice)
 
 		meta := buildGpuPCMeta(cpuTrace, ev.Pid, int64(sr.Samples))
 		if err := rep.ReportTraceEvent(trace, meta); err != nil {

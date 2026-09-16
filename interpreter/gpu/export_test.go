@@ -9,7 +9,7 @@ import "go.opentelemetry.io/ebpf-profiler/libpf"
 // skipping the BPF probe attachment that the real Attach path performs.
 // For use in tests only.
 func RegisterTestFixer(pid libpf.PID) {
-	gpuFixers.Store(pid, newGpuTraceFixer())
+	gpuFixers.Store(pid, newGpuTraceFixer(false))
 }
 
 // UnregisterTestFixer removes the fixer for the given PID.

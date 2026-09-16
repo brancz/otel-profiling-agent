@@ -1,6 +1,7 @@
 package gpu // import "go.opentelemetry.io/ebpf-profiler/interpreter/gpu"
 
 import (
+	"strconv"
 	"time"
 	"unique"
 
@@ -91,10 +92,16 @@ func buildGpuPCTrace(cpuTrace *SymbolizedCudaTrace, cubinMapping libpf.FrameMapp
 }
 
 // gpuPCLabels builds the per-sample custom labels for a GPU PC sample: the CUPTI
-// stall reason and, when decoded, the SASS instruction mnemonic at the offset.
-func gpuPCLabels(stallName libpf.String, mnemonic string) map[libpf.String]libpf.String {
+// stall reason, the device the sample's context is bound to (when the attached
+// parcagpu build's probe reports one), and, when decoded, the SASS instruction
+// mnemonic at the offset.
+func gpuPCLabels(stallName libpf.String, mnemonic string, deviceID uint32,
+	hasDevice bool) map[libpf.String]libpf.String {
 	labels := map[libpf.String]libpf.String{
 		cudaStallReason: stallName,
+	}
+	if hasDevice {
+		labels[cudaDevice] = libpf.Intern(strconv.FormatUint(uint64(deviceID), 10))
 	}
 	if mnemonic != "" {
 		labels[cudaSassInstruction] = libpf.Intern(mnemonic)
